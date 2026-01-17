@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Rebar Cage Update Record – Final-only (SheetDB) v2</title>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2pdf.js/dist/html2pdf.bundle.min.js"></script>
+
+<style>
+:root{
+  --bd:#9aa0a6;
+  --panel:#f6f7f9;
+  --muted:#6b7280;
+  --ok:#0f766e;
+  --warn:#b91c1c;
+  --btn:#111827;
+  --btn2:#ffffff;
+}
+*{box-sizing:border-box}
+body{font-family:Arial,Helvetica,sans-serif;padding:18px;background:#fff;color:#111;}
+h1{margin:0 0 6px 0;font-size:22px;}
+.sub{font-size:12px;color:var(--muted);margin:0 0 14px 0;line-height:1.35}
+.panel{background:var(--panel);border:1px solid var(--bd);padding:10px;border-radius:10px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.label{font-size:12px;color:#111;margin-right:6px;white-space:nowrap}
+input,select,textarea{padding:6px 8px;border:1px solid var(--bd);border-radius:8px;font-size:13px}
+input[readonly]{background:#fafafa}
+.btn{padding:8px 12px;border-radius:10px;border:1px solid #111;background:var(--btn2);cursor:pointer;font-weight:600}
+.btn.primary{background:var(--btn);color:#fff}
+.btn.danger{border-color:var(--warn);color:var(--warn)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.badge{font-size:12px;padding:3px 8px;border-radius:999px;border:1px solid var(--bd);background:#fff}
+.badge.ok{border-color:var(--ok);color:var(--ok)}
+.badge.muted{color:var(--muted)}
+h2{margin:18px 0 8px 0;font-size:16px}
+table{border-collapse:collapse;width:100%}
+th,td{border:1px solid var(--bd);padding:6px;text-align:center;vertical-align:top}
+th{background:#fafafa;font-size:12px}
+td{font-size:13px}
+.section-box{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+.section-box label{font-size:12px;display:flex;gap:4px;align-items:center}
+.arrival-wrap{display:flex;flex-direction:column;gap:6px;align-items:center}
+.arrival-inputs{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+.arrival-list{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+.pill{border:1px solid var(--bd);border-radius:999px;padding:2px 8px;font-size:12px;background:#fff;display:flex;gap:6px;align-items:center}
+.pill button{border:none;background:transparent;color:var(--warn);cursor:pointer;font-weight:700;padding:0}
+small{color:var(--muted)}
+.footer{margin-top:18px;border-top:2px solid #e5e7eb;padding-top:12px}
+@media print{
+  .panel,.footer,.btn,.history{display:none!important}
+  body{padding:0}
+}
+</style>
+</head>
+
+<body id="page">
+<h1>Rebar Cage Update Record / 钢筋笼到场与焊接进度记录</h1>
+<p class="sub">
+<strong>Final-only model / 仅保留最终版：</strong>
+Draft（暂存）只保存在本机缓存；点击 <b>Confirm &amp; Submit / 确认提交</b> 后才写入 SheetDB（数据库仅保留该 Record 的最终版本；同编号再次提交=覆盖）。
+</p>
+
+<div class="panel">
+  <div class="row">
+    <span class="label"><b>Record No / 记录编号</b></span>
+    <input id="recordNo" readonly style="width:240px;font-weight:700" placeholder="(Auto on submit)">
+
+    <span class="label"><b>Date / 日期</b></span>
+    <input id="recordDate" type="date">
+
+    <span class="label"><b>Shift / 班次</b></span>
+    <select id="shift">
+      <option value="DayShift">DayShift / 日班</option>
+      <option value="NightShift">NightShift / 夜班</option>
+    </select>
+
+    <span class="label"><b>History / 历史记录</b></span>
+    <select id="historySelect" class="history" style="min-width:240px">
+      <option value="">-- Select Record No --</option>
+    </select>
+    <button class="btn history" onclick="loadSelectedFinal()">Load / 加载</button>
+
+    <span id="hint" class="badge muted">Draft: idle</span>
+  </div>
+
+  <div class="row" style="margin-top:10px">
+    <button class="btn" onclick="newDraft()">New Draft / 新建暂存</button>
+    <button class="btn" onclick="saveDraft()">Save Draft / 暂存</button>
+    <button class="btn primary" id="btnSubmit" onclick="confirmSubmit()">Confirm &amp; Submit / 确认提交</button>
+    <button class="btn danger" onclick="clearDraft()">Clear Draft / 清除暂存</button>
+
+    <span class="sub" style="margin-left:auto">
+      <small>Draft autosaves locally when you edit. / 编辑时会自动本地暂存</small>
+    </span>
+  </div>
+</div>
+
+<h2>1) Today Delivery / 今日到场</h2>
+<table id="deliveryTable">
+  <thead>
+    <tr>
+      <th>Region<br><small>区域</small></th>
+      <th>Grid<br><small>网格</small></th>
+      <th>Pile No<br><small>桩号(三位)</small></th>
+      <th>Total Sections<br><small>总节数(1-8)</small></th>
+      <th>Arrivals (Section + Time)<br><small>到场记录（节号+时间）</small></th>
+      <th>Action<br><small>操作</small></th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+<button class="btn" onclick="addRow('delivery')">Add Row / 新增</button>
+
+<h2>2) On Site / 现场已有</h2>
+<table id="onsiteTable">
+  <thead>
+    <tr>
+      <th>Region<br><small>区域</small></th>
+      <th>Grid<br><small>网格</small></th>
+      <th>Pile No<br><small>桩号(三位)</small></th>
+      <th>Total Sections<br><small>总节数(1-8)</small></th>
+      <th>On-site Sections<br><small>在场节(多选)</small></th>
+      <th>Remarks<br><small>备注</small></th>
+      <th>Action<br><small>操作</small></th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+<button class="btn" onclick="addRow('onsite')">Add Row / 新增</button>
+
+<h2>3) Welding / 焊接</h2>
+<table id="weldingTable">
+  <thead>
+    <tr>
+      <th>Region<br><small>区域</small></th>
+      <th>Grid<br><small>网格</small></th>
+      <th>Pile No<br><small>桩号(三位)</small></th>
+      <th>Total Sections<br><small>总节数(1-8)</small></th>
+      <th>Welded Sections<br><small>已焊节(多选)</small></th>
+      <th>Hanging Bars Welding<br><small>吊筋焊接</small></th>
+      <th>Action<br><small>操作</small></th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+<button class="btn" onclick="addRow('welding')">Add Row / 新增</button>
+
+<div class="footer">
+  <button class="btn" onclick="exportExcel()">Export Excel / 导出Excel</button>
+  <button class="btn" onclick="exportPDF()">Export PDF / 导出PDF</button>
+  <button class="btn" onclick="window.print()">Print / 打印</button>
+</div>
+
+<script>
+/* ===================== CONFIG ===================== */
+const SHEETDB_BASE = "https://sheetdb.io/api/v1/tk5tv6w4ggm2e";
+const SHEETS = {
+  master: "Record_Master",
+  delivery: "Delivery_Detail",
+  onsite: "OnSite_Detail",
+  welding: "Welding_Detail"
+};
+const STATUS_FINAL = "FINAL";
+
+function draftKey(){
+  const d = document.getElementById("recordDate").value || "no-date";
+  const s = document.getElementById("shift").value || "no-shift";
+  return `rebar_draft_${d}_${s}`;
+}
+function lastKey(){
+  const d = document.getElementById("recordDate").value || "no-date";
+  return `rebar_last_delivery_${d}`;
+}
+
+/* ===================== HTTP ===================== */
+function sheetUrl(path="", sheet){
+  const u = SHEETDB_BASE + (path ? "/" + path : "");
+  return sheet ? (u + "?sheet=" + encodeURIComponent(sheet)) : u;
+}
+async function sheetFetch(url, opts={}){
+  const res = await fetch(url, opts);
+  const txt = await res.text();
+  if(!res.ok) throw new Error(txt || ("HTTP " + res.status));
+  return txt ? JSON.parse(txt) : null;
+}
+
+/* ===================== Robust field getter ===================== */
+function normKey(k){
+  return String(k||"").trim().toLowerCase().replace(/\s+/g,"_");
+}
+function getField(obj, candidates){
+  const map = {};
+  Object.keys(obj||{}).forEach(k=>map[normKey(k)] = obj[k]);
+  for(const c of candidates){
+    const v = map[normKey(c)];
+    if(v !== undefined) return v;
+  }
+  return "";
+}
+
+/* ===================== UI HELPERS ===================== */
+const hintEl = document.getElementById("hint");
+function setHint(text, mode="muted"){
+  hintEl.className = "badge " + (mode || "muted");
+  hintEl.textContent = text;
+}
+function pad3(val){
+  const n = String(val||"").replace(/\D/g,"");
+  return n.padStart(3,"0").slice(-3);
+}
+function regionSelectHTML(){
+  return `<select>
+    <option value=""></option>
+    <option value="GTC">GTC</option>
+    <option value="T5A">T5A</option>
+  </select>`;
+}
+function gridSelectHTML(){
+  return `<select>
+    <option value=""></option>
+    <option value="E03">E03</option>
+    <option value="W03">W03</option>
+    <option value="W22">W22</option>
+    <option value="E27">E27</option>
+  </select>`;
+}
+function totalSelectHTML(){
+  let opt = "";
+  for(let i=1;i<=8;i++) opt += `<option value="${i}">${i}</option>`;
+  return `<select onchange="updateSectionUI(this)">${opt}</select>`;
+}
+function sectionBoxHTML(n){
+  let h = `<div class="section-box">`;
+  for(let i=1;i<=n;i++){
+    h += `<label><input type="checkbox" value="${i}">${i}</label>`;
+  }
+  return h + `</div>`;
+}
+function hangingBarsHTML(){
+  return `<select>
+    <option value=""></option>
+    <option value="Finished">Finished</option>
+    <option value="Unfinished">Unfinished</option>
+  </select>`;
+}
+function arrivalUIHTML(total){
+  let secOpt = "";
+  for(let i=1;i<=total;i++) secOpt += `<option value="${i}">${i}</option>`;
+  return `
+    <div class="arrival-wrap">
+      <div class="arrival-inputs">
+        <select class="arr-sec">${secOpt}</select>
+        <input class="arr-time" type="time" step="60">
+        <button class="btn" type="button" onclick="addArrival(this)">Add / 添加</button>
+      </div>
+      <input class="arr-json" type="hidden" value="{}">
+      <div class="arrival-list"></div>
+      <small>Example: Sec 5 @ 08:00; Sec 3 @ 10:00</small>
+    </div>`;
+}
+
+/* ===================== TABLE OPS ===================== */
+function addRow(module){
+  const tb = document.querySelector(`#${module}Table tbody`);
+  const tr = document.createElement("tr");
+  tr.dataset.module = module;
+
+  if(module === "delivery"){
+    tr.innerHTML = `
+      <td>${regionSelectHTML()}</td>
+      <td>${gridSelectHTML()}</td>
+      <td><input style="width:70px" placeholder="001"></td>
+      <td>${totalSelectHTML()}</td>
+      <td>${arrivalUIHTML(1)}</td>
+      <td><button class="btn danger" onclick="removeRow(this)">Delete</button></td>
+    `;
+    applyLastDefaultsToDeliveryRow(tr);
+  } else if(module === "onsite"){
+    tr.innerHTML = `
+      <td>${regionSelectHTML()}</td>
+      <td>${gridSelectHTML()}</td>
+      <td><input style="width:70px" placeholder="001"></td>
+      <td>${totalSelectHTML()}</td>
+      <td>${sectionBoxHTML(1)}</td>
+      <td><input style="width:160px" placeholder="..."></td>
+      <td><button class="btn danger" onclick="removeRow(this)">Delete</button></td>
+    `;
+  } else {
+    tr.innerHTML = `
+      <td>${regionSelectHTML()}</td>
+      <td>${gridSelectHTML()}</td>
+      <td><input style="width:70px" placeholder="001"></td>
+      <td>${totalSelectHTML()}</td>
+      <td>${sectionBoxHTML(1)}</td>
+      <td>${hangingBarsHTML()}</td>
+      <td><button class="btn danger" onclick="removeRow(this)">Delete</button></td>
+    `;
+  }
+
+  tb.appendChild(tr);
+
+  const pileInput = tr.querySelector("td:nth-child(3) input");
+  pileInput.addEventListener("blur", ()=> {
+    pileInput.value = pad3(pileInput.value);
+    if(module==="delivery") saveLastDefaultsFromRow(tr);
+  });
+
+  tr.querySelectorAll("input,select,textarea").forEach(el=>{
+    el.addEventListener("input", debounceAutosave);
+    el.addEventListener("change", debounceAutosave);
+  });
+
+  if(module==="delivery"){
+    tr.children[0].querySelector("select").addEventListener("change", ()=>saveLastDefaultsFromRow(tr));
+    tr.children[1].querySelector("select").addEventListener("change", ()=>saveLastDefaultsFromRow(tr));
+    renderArrivals(tr);
+  }
+
+  debounceAutosave();
+}
+
+function removeRow(btn){
+  btn.closest("tr").remove();
+  debounceAutosave();
+}
+
+function updateSectionUI(sel){
+  const tr = sel.closest("tr");
+  const module = tr.dataset.module;
+  const total = parseInt(sel.value || "1", 10);
+
+  if(module === "delivery"){
+    const jsonEl = tr.querySelector(".arr-json");
+    let data = {};
+    try{ data = JSON.parse(jsonEl.value || "{}"); }catch(e){}
+    const trimmed = {};
+    Object.keys(data).forEach(k=>{
+      const n = parseInt(k,10);
+      if(n>=1 && n<=total) trimmed[String(n)] = data[k];
+    });
+    tr.children[4].innerHTML = arrivalUIHTML(total);
+    tr.querySelector(".arr-json").value = JSON.stringify(trimmed);
+    renderArrivals(tr);
+    tr.querySelectorAll("input,select,textarea").forEach(el=>{
+      el.addEventListener("input", debounceAutosave);
+      el.addEventListener("change", debounceAutosave);
+    });
+  } else {
+    tr.children[4].innerHTML = sectionBoxHTML(total);
+    tr.querySelectorAll(".section-box input").forEach(el=>{
+      el.addEventListener("change", debounceAutosave);
+    });
+  }
+  debounceAutosave();
+}
+
+/* ===================== Delivery arrivals ===================== */
+function getArrivalData(tr){
+  const el = tr.querySelector(".arr-json");
+  try{ return JSON.parse(el.value || "{}"); }catch(e){ return {}; }
+}
+function setArrivalData(tr, data){
+  tr.querySelector(".arr-json").value = JSON.stringify(data || {});
+}
+function renderArrivals(tr){
+  const list = tr.querySelector(".arrival-list");
+  if(!list) return;
+  const data = getArrivalData(tr);
+  const keys = Object.keys(data).map(k=>parseInt(k,10)).filter(n=>Number.isFinite(n)).sort((a,b)=>a-b);
+  list.innerHTML = keys.length ? "" : `<span class="sub"><small>No arrivals yet / 暂无到场记录</small></span>`;
+  keys.forEach(n=>{
+    const time = data[String(n)];
+    const pill = document.createElement("span");
+    pill.className = "pill";
+    pill.innerHTML = `Sec ${n} @ ${time} <button title="Remove" onclick="removeArrival(this, ${n})">×</button>`;
+    list.appendChild(pill);
+  });
+}
+function addArrival(btn){
+  const tr = btn.closest("tr");
+  const sec = tr.querySelector(".arr-sec").value;
+  const time = tr.querySelector(".arr-time").value;
+  if(!sec || !time){ alert("Please select section & time / 请选择节号和时间"); return; }
+  const data = getArrivalData(tr);
+  data[String(sec)] = time; // overwrite allowed
+  setArrivalData(tr, data);
+  renderArrivals(tr);
+  saveLastDefaultsFromRow(tr);
+  debounceAutosave();
+}
+function removeArrival(btn, sec){
+  const tr = btn.closest("tr");
+  const data = getArrivalData(tr);
+  delete data[String(sec)];
+  setArrivalData(tr, data);
+  renderArrivals(tr);
+  debounceAutosave();
+}
+
+/* ===================== Last defaults (Delivery) ===================== */
+function applyLastDefaultsToDeliveryRow(tr){
+  try{
+    const raw = localStorage.getItem(lastKey());
+    if(!raw) return;
+    const d = JSON.parse(raw);
+    if(d.region) tr.children[0].querySelector("select").value = d.region;
+    if(d.grid) tr.children[1].querySelector("select").value = d.grid;
+    if(d.pile_no) tr.children[2].querySelector("input").value = d.pile_no;
+  }catch(e){}
+}
+function saveLastDefaultsFromRow(tr){
+  try{
+    const region = tr.children[0].querySelector("select").value || "";
+    const grid = tr.children[1].querySelector("select").value || "";
+    const pile = pad3(tr.children[2].querySelector("input").value || "");
+    if(!region && !grid && !pile) return;
+    localStorage.setItem(lastKey(), JSON.stringify({region, grid, pile_no:pile}));
+  }catch(e){}
+}
+
+/* ===================== SNAPSHOT (DRAFT) ===================== */
+function collectModule(module){
+  const rows = [...document.querySelectorAll(`#${module}Table tbody tr`)];
+  return rows.map(tr=>{
+    const region = tr.children[0].querySelector("select").value || "";
+    const grid = tr.children[1].querySelector("select").value || "";
+    const pile = pad3(tr.children[2].querySelector("input").value || "");
+    tr.children[2].querySelector("input").value = pile;
+
+    const total = tr.children[3].querySelector("select").value || "1";
+
+    const base = { region, grid, pile_no: pile, total_sections: total };
+
+    if(module === "delivery"){
+      base.arrivals = getArrivalData(tr);
+    } else {
+      base.sections = [...tr.children[4].querySelectorAll("input:checked")].map(c=>c.value);
+    }
+    if(module === "onsite"){
+      base.remarks = tr.children[5].querySelector("input").value || "";
+    }
+    if(module === "welding"){
+      base.hanging_bars_welding = tr.children[5].querySelector("select").value || "";
+    }
+    return base;
+  });
+}
+
+function makeDraftSnapshot(){
+  return {
+    record_no: document.getElementById("recordNo").value || "",
+    record_date: document.getElementById("recordDate").value || "",
+    shift: document.getElementById("shift").value || "",
+    delivery: collectModule("delivery"),
+    onsite: collectModule("onsite"),
+    welding: collectModule("welding"),
+    _saved_at: new Date().toISOString()
+  };
+}
+
+function applySnapshot(snap){
+  document.getElementById("recordNo").value = snap.record_no || "";
+  document.getElementById("recordDate").value = snap.record_date || document.getElementById("recordDate").value;
+  document.getElementById("shift").value = snap.shift || document.getElementById("shift").value;
+
+  ["delivery","onsite","welding"].forEach(m=>{
+    document.querySelector(`#${m}Table tbody`).innerHTML = "";
+  });
+
+  (snap.delivery||[]).forEach(r=> addRowAndFill("delivery", r));
+  (snap.onsite||[]).forEach(r=> addRowAndFill("onsite", r));
+  (snap.welding||[]).forEach(r=> addRowAndFill("welding", r));
+
+  setHint("Loaded / 已加载", "ok");
+}
+
+function addRowAndFill(module, r){
+  addRow(module);
+  const tr = document.querySelector(`#${module}Table tbody`).lastElementChild;
+  tr.children[0].querySelector("select").value = r.region || "";
+  tr.children[1].querySelector("select").value = r.grid || "";
+  tr.children[2].querySelector("input").value = pad3(r.pile_no || "");
+  tr.children[3].querySelector("select").value = String(r.total_sections || "1");
+  updateSectionUI(tr.children[3].querySelector("select"));
+
+  if(module==="delivery"){
+    setArrivalData(tr, r.arrivals || {});
+    renderArrivals(tr);
+    saveLastDefaultsFromRow(tr);
+  } else {
+    (r.sections||[]).forEach(sec=>{
+      const cb = [...tr.children[4].querySelectorAll("input")].find(x=>x.value==sec);
+      if(cb) cb.checked = true;
+    });
+  }
+  if(module==="onsite"){
+    tr.children[5].querySelector("input").value = r.remarks || "";
+  }
+  if(module==="welding"){
+    tr.children[5].querySelector("select").value = r.hanging_bars_welding || "";
+  }
+}
+
+/* ===================== DRAFT STORAGE ===================== */
+function saveDraft(){
+  const snap = makeDraftSnapshot();
+  localStorage.setItem(draftKey(), JSON.stringify(snap));
+  setHint("Draft saved / 暂存已保存", "ok");
+}
+function restoreDraftIfAny(){
+  const raw = localStorage.getItem(draftKey());
+  if(!raw) return;
+  try{
+    applySnapshot(JSON.parse(raw));
+  }catch(e){ console.warn(e); }
+}
+function clearDraft(){
+  localStorage.removeItem(draftKey());
+  setHint("Draft cleared / 暂存已清除", "muted");
+}
+function newDraft(){
+  document.getElementById("recordNo").value = "";
+  ["delivery","onsite","welding"].forEach(m=>{
+    document.querySelector(`#${m}Table tbody`).innerHTML = "";
+    addRow(m);
+  });
+  setHint("New draft / 新暂存", "muted");
+  saveDraft();
+}
+
+/* ===================== AUTOSAVE (LOCAL ONLY) ===================== */
+let autosaveTimer = null;
+function debounceAutosave(){
+  if(autosaveTimer) clearTimeout(autosaveTimer);
+  setHint("Draft: typing… / 输入中…", "muted");
+  autosaveTimer = setTimeout(()=>{
+    try{
+      saveDraft();
+      setHint("Draft: up to date / 暂存已更新", "ok");
+    }catch(e){
+      setHint("Draft: failed / 暂存失败", "muted");
+    }
+  }, 500);
+}
+
+/* ===================== FINAL SUBMIT (WRITE DB) ===================== */
+async function fetchAllFinalRecords(){
+  return await sheetFetch(sheetUrl("", SHEETS.master));
+}
+function shiftCode(){
+  return document.getElementById("shift").value === "NightShift" ? "N" : "D";
+}
+async function generateRecordNoIfEmpty(){
+  const recordNoEl = document.getElementById("recordNo");
+  if(recordNoEl.value) return recordNoEl.value;
+
+  const d = document.getElementById("recordDate").value;
+  const code = shiftCode();
+  const ymd = (d || "").replaceAll("-","");
+  if(!ymd){
+    alert("Please select Date / 请先选择日期");
+    throw new Error("Missing date");
+  }
+
+  let seq = 1;
+  try{
+    const rows = await fetchAllFinalRecords();
+    const prefix = `${ymd}-${code}-`;
+    const existing = (rows||[])
+      .map(x=>String(getField(x,["record_no","Record No","Record_No"])||""))
+      .filter(x=>x.startsWith(prefix));
+    if(existing.length){
+      const nums = existing.map(x=>{
+        const m = x.match(/-(\d{3})$/);
+        return m ? parseInt(m[1],10) : 0;
+      }).filter(n=>Number.isFinite(n));
+      seq = (Math.max(...nums, 0) + 1);
+    }
+  }catch(e){
+    const ts = (Date.now()%100000).toString().padStart(5,"0");
+    recordNoEl.value = `${ymd}-${code}-${ts}`;
+    return recordNoEl.value;
+  }
+
+  recordNoEl.value = `${ymd}-${code}-${String(seq).padStart(3,"0")}`;
+  return recordNoEl.value;
+}
+function validateBeforeSubmit(){
+  const d = document.getElementById("recordDate").value;
+  if(!d){ alert("Date is required / 日期必填"); return false; }
+  document.querySelectorAll("td:nth-child(3) input").forEach(inp=> inp.value = pad3(inp.value));
+  return true;
+}
+async function confirmSubmit(){
+  if(!validateBeforeSubmit()) return;
+
+  if(!confirm("Confirm & Submit?\n确认提交？（同编号再次提交将覆盖）")) return;
+
+  setHint("Submitting… / 提交中…", "muted");
+  document.getElementById("btnSubmit").disabled = true;
+
+  try{
+    const record_no = await generateRecordNoIfEmpty();
+    const snap = makeDraftSnapshot();
+    snap.record_no = record_no;
+
+    await sheetFetch(sheetUrl("record_no/" + encodeURIComponent(record_no), SHEETS.master), { method:"DELETE" }).catch(()=>{});
+    await sheetFetch(sheetUrl("", SHEETS.master), {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({
+        data: [{
+          record_no: record_no,
+          record_date: snap.record_date,
+          shift: snap.shift,
+          record_status: STATUS_FINAL,
+          updated_at: new Date().toISOString()
+        }]
+      })
+    });
+
+    await overwriteDetails(record_no, snap);
+
+    localStorage.setItem(draftKey(), JSON.stringify(snap));
+    setHint("Submitted ✓ / 已提交", "ok");
+    await refreshHistory();
+  }catch(e){
+    console.error(e);
+    alert("Submit failed / 提交失败:\n" + (e.message || e));
+    setHint("Submit failed / 提交失败", "muted");
+  }finally{
+    document.getElementById("btnSubmit").disabled = false;
+  }
+}
+function encodeArrivals(arr){
+  const keys = Object.keys(arr||{}).map(k=>parseInt(k,10)).filter(n=>Number.isFinite(n)).sort((a,b)=>a-b);
+  return keys.map(n=>`${n}=${arr[String(n)]}`).join(";");
+}
+function decodeArrivals(str){
+  const out = {};
+  String(str||"").split(";").map(x=>x.trim()).filter(Boolean).forEach(pair=>{
+    const [k,v] = pair.split("=").map(s=>s.trim());
+    const n = parseInt(k,10);
+    if(Number.isFinite(n) && v) out[String(n)] = v;
+  });
+  return out;
+}
+async function overwriteDetails(record_no, snap){
+  await Promise.all([
+    sheetFetch(sheetUrl("record_no/" + encodeURIComponent(record_no), SHEETS.delivery), { method:"DELETE" }).catch(()=>{}),
+    sheetFetch(sheetUrl("record_no/" + encodeURIComponent(record_no), SHEETS.onsite), { method:"DELETE" }).catch(()=>{}),
+    sheetFetch(sheetUrl("record_no/" + encodeURIComponent(record_no), SHEETS.welding), { method:"DELETE" }).catch(()=>{})
+  ]);
+
+  const deliveryRows = (snap.delivery||[]).map(r=>({
+    record_no,
+    region: r.region || "",
+    grid: r.grid || "",
+    pile_no: pad3(r.pile_no || ""),
+    total_sections: String(r.total_sections || "1"),
+    arrived_sections: encodeArrivals(r.arrivals || {})
+  }));
+
+  const onsiteRows = (snap.onsite||[]).map(r=>({
+    record_no,
+    region: r.region || "",
+    grid: r.grid || "",
+    pile_no: pad3(r.pile_no || ""),
+    total_sections: String(r.total_sections || "1"),
+    onsite_sections: (r.sections||[]).join(","),
+    remarks: r.remarks || ""
+  }));
+
+  const weldingRows = (snap.welding||[]).map(r=>({
+    record_no,
+    region: r.region || "",
+    grid: r.grid || "",
+    pile_no: pad3(r.pile_no || ""),
+    total_sections: String(r.total_sections || "1"),
+    welded_sections: (r.sections||[]).join(","),
+    hanging_bars_welding: r.hanging_bars_welding || ""
+  }));
+
+  if(deliveryRows.length){
+    await sheetFetch(sheetUrl("", SHEETS.delivery), {
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ data: deliveryRows })
+    });
+  }
+  if(onsiteRows.length){
+    await sheetFetch(sheetUrl("", SHEETS.onsite), {
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ data: onsiteRows })
+    });
+  }
+  if(weldingRows.length){
+    await sheetFetch(sheetUrl("", SHEETS.welding), {
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ data: weldingRows })
+    });
+  }
+}
+
+
+/* ----- SheetDB record_no fetch with fallback (search -> fetch-all) ----- */
+async function fetchByRecordNoSafe(sheetName, recordNo){
+  // 1) try /search
+  try{
+    const r = await sheetFetch(sheetUrl("search?record_no=" + encodeURIComponent(recordNo), sheetName)).catch(()=>[]);
+    if(Array.isArray(r) && r.length) return r;
+  }catch(e){}
+  // 2) fallback: fetch all then filter locally
+  const all = await sheetFetch(sheetUrl("", sheetName)).catch(()=>[]);
+  return (all||[]).filter(x => String(getField(x,["record_no"])||"").trim() === String(recordNo||"").trim());
+}
+
+/* ===================== HISTORY LOAD (FINAL) ===================== */
+async function refreshHistory(){
+  const sel = document.getElementById("historySelect");
+  sel.innerHTML = `<option value="">-- Select Record No --</option>`;
+  try{
+    const rows = await fetchAllFinalRecords();
+    const sorted = (rows||[]).slice().sort((a,b)=>{
+      const ta = Date.parse(getField(a,["updated_at","Updated At","updated at"])||"") || 0;
+      const tb = Date.parse(getField(b,["updated_at","Updated At","updated at"])||"") || 0;
+      return tb - ta;
+    });
+    sorted.forEach(r=>{
+      const rn = String(getField(r,["record_no","Record No","record no","Record_No"])||"").trim();
+      if(!rn) return;
+      const opt = document.createElement("option");
+      opt.value = rn;
+      opt.textContent = rn;
+      sel.appendChild(opt);
+    });
+  }catch(e){
+    console.warn(e);
+  }
+}
+async function loadSelectedFinal(){
+  const rn = document.getElementById("historySelect").value;
+  if(!rn) return;
+  setHint("Loading… / 加载中…", "muted");
+  try{
+    const masterRows = await fetchByRecordNoSafe(SHEETS.master, rn);
+    if(masterRows && masterRows[0]){
+      document.getElementById("recordDate").value = getField(masterRows[0],["record_date","date","Record Date"]) || document.getElementById("recordDate").value;
+      document.getElementById("shift").value = getField(masterRows[0],["shift","Shift"]) || document.getElementById("shift").value;
+    }
+    document.getElementById("recordNo").value = rn;
+
+    const [dRows, oRows, wRows] = await Promise.all([
+      fetchByRecordNoSafe(SHEETS.delivery, rn),
+      fetchByRecordNoSafe(SHEETS.onsite, rn),
+      fetchByRecordNoSafe(SHEETS.welding, rn)
+    ]);
+
+    const snap = {
+      record_no: rn,
+      record_date: document.getElementById("recordDate").value,
+      shift: document.getElementById("shift").value,
+      delivery: (dRows||[]).map(x=>({
+        region: getField(x,["region","Region"])||"",
+        grid: getField(x,["grid","Grid"])||"",
+        pile_no: getField(x,["pile_no","Pile No","pile no"])||"",
+        total_sections: getField(x,["total_sections","Total Sections"])||"1",
+        arrivals: decodeArrivals(getField(x,["arrived_sections","Arrived Sections"])||"")
+      })),
+      onsite: (oRows||[]).map(x=>({
+        region: getField(x,["region","Region"])||"",
+        grid: getField(x,["grid","Grid"])||"",
+        pile_no: getField(x,["pile_no","Pile No","pile no"])||"",
+        total_sections: getField(x,["total_sections","Total Sections"])||"1",
+        sections: String(getField(x,["onsite_sections","Onsite Sections","on site sections"])||"").split(",").map(s=>s.trim()).filter(Boolean),
+        remarks: getField(x,["remarks","Remarks"])||""
+      })),
+      welding: (wRows||[]).map(x=>({
+        region: getField(x,["region","Region"])||"",
+        grid: getField(x,["grid","Grid"])||"",
+        pile_no: getField(x,["pile_no","Pile No","pile no"])||"",
+        total_sections: getField(x,["total_sections","Total Sections"])||"1",
+        sections: String(getField(x,["welded_sections","Welded Sections","welded section"])||"").split(",").map(s=>s.trim()).filter(Boolean),
+        hanging_bars_welding: getField(x,["hanging_bars_welding","Hanging Bars Welding"])||""
+      }))
+    };
+
+    applySnapshot(snap);
+    localStorage.setItem(draftKey(), JSON.stringify(snap));
+    setHint("Loaded ✓ / 已加载", "ok");
+  }catch(e){
+    console.error(e);
+    alert("Load failed / 加载失败:\n" + (e.message || e));
+    setHint("Load failed / 加载失败", "muted");
+  }
+}
+
+/* ===================== EXPORT ===================== */
+function exportExcel(){
+  const snap = makeDraftSnapshot();
+  const wb = XLSX.utils.book_new();
+  const del = (snap.delivery||[]).map(r=>({
+    region:r.region, grid:r.grid, pile_no:r.pile_no, total_sections:r.total_sections,
+    arrived_sections: encodeArrivals(r.arrivals||{})
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(del), "Delivery");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(snap.onsite||[]), "OnSite");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(snap.welding||[]), "Welding");
+  XLSX.writeFile(wb, (document.getElementById("recordNo").value || "Draft") + ".xlsx");
+}
+function exportPDF(){
+  html2pdf().from(document.getElementById("page")).set({ filename: (document.getElementById("recordNo").value || "Draft") + ".pdf" }).save();
+}
+
+/* ===================== INIT ===================== */
+function init(){
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth()+1).padStart(2,"0");
+  const dd = String(today.getDate()).padStart(2,"0");
+  document.getElementById("recordDate").value = `${yyyy}-${mm}-${dd}`;
+
+  addRow("delivery");
+  addRow("onsite");
+  addRow("welding");
+
+  restoreDraftIfAny();
+
+  document.getElementById("recordDate").addEventListener("change", ()=>{
+    document.getElementById("recordNo").value = "";
+    restoreDraftIfAny();
+    debounceAutosave();
+  });
+  document.getElementById("shift").addEventListener("change", ()=>{
+    document.getElementById("recordNo").value = "";
+    restoreDraftIfAny();
+    debounceAutosave();
+  });
+
+  refreshHistory();
+  setHint("Draft: ready / 暂存就绪", "muted");
+}
+init();
+
+</script>
+</body>
+</html>
