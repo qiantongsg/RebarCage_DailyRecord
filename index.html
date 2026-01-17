@@ -5,9 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Rebar Cage Update Record – Final-only (SheetDB) v2</title>
 
-<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/html2pdf.js/dist/html2pdf.bundle.min.js"></script>
-
 <style>
 :root{
   --bd:#9aa0a6;
@@ -57,10 +54,7 @@ small{color:var(--muted)}
 
 <body id="page">
 <h1>Rebar Cage Update Record / 钢筋笼到场与焊接进度记录</h1>
-<p class="sub">
-<strong>Final-only model / 仅保留最终版：</strong>
-Draft（暂存）只保存在本机缓存；点击 <b>Confirm &amp; Submit / 确认提交</b> 后才写入 SheetDB（数据库仅保留该 Record 的最终版本；同编号再次提交=覆盖）。
-</p>
+<p class="sub">版本号：V2.0 / Version: V2.0 &nbsp; | &nbsp; 数据规则：仅保留最终确认版本（Final-only） / Data Rule: Only confirmed records are stored</p>
 
 <div class="panel">
   <div class="row">
@@ -85,13 +79,34 @@ Draft（暂存）只保存在本机缓存；点击 <b>Confirm &amp; Submit / 确
     <span id="hint" class="badge muted">Draft: idle</span>
   </div>
 
-  <div class="row" style="margin-top:10px">
-    <button class="btn" onclick="newDraft()">New Draft / 新建暂存</button>
-    <button class="btn" onclick="saveDraft()">Save Draft / 暂存</button>
-    <button class="btn primary" id="btnSubmit" onclick="confirmSubmit()">Confirm &amp; Submit / 确认提交</button>
-    <button class="btn danger" onclick="clearDraft()">Clear Draft / 清除暂存</button>
+  
+<div class="row" style="margin-top:10px">
+  <button class="btn" onclick="newDraft()">新建记录 / New Record</button>
+  <button class="btn" onclick="saveDraft()">暂存当前数据 / Save Draft</button>
+  <button class="btn danger" onclick="clearDraft()">清除当前数据 / Clear Current Data</button>
+  <button class="btn primary" id="btnSubmit" onclick="confirmSubmit()">确认并提交 / Confirm &amp; Submit</button>
 
-    <span class="sub" style="margin-left:auto">
+
+    
+<details style="margin-top:10px">
+  <summary style="cursor:pointer;font-weight:700">按键说明 / Buttons Guide（点击展开 / Click to expand）</summary>
+  <div style="margin-top:8px;line-height:1.55;font-size:12px;color:#111">
+    <div><b>新建记录 / New Record：</b>开始填写一张新的记录表（不影响已提交记录）<br>
+      <span style="color:#6b7280">Start a new record without affecting submitted records</span></div><br>
+
+    <div><b>暂存当前数据 / Save Draft：</b>临时保存当前填写内容，不提交、不写入数据库<br>
+      <span style="color:#6b7280">Temporarily save current inputs without submitting to database</span></div><br>
+
+    <div><b>清除当前数据 / Clear Current Data：</b>清空当前页面填写内容，不影响已提交记录<br>
+      <span style="color:#6b7280">Clear current inputs without affecting submitted records</span></div><br>
+
+    <div><b>确认并提交 / Confirm &amp; Submit：</b>确认当前记录无误后提交，作为正式记录保存<br>
+      <span style="color:#6b7280">Submit the record as the final official version</span></div>
+  </div>
+</details>
+
+
+<span class="sub" style="margin-left:auto">
       <small>Draft autosaves locally when you edit. / 编辑时会自动本地暂存</small>
     </span>
   </div>
@@ -148,9 +163,7 @@ Draft（暂存）只保存在本机缓存；点击 <b>Confirm &amp; Submit / 确
 <button class="btn" onclick="addRow('welding')">Add Row / 新增</button>
 
 <div class="footer">
-  <button class="btn" onclick="exportExcel()">Export Excel / 导出Excel</button>
-  <button class="btn" onclick="exportPDF()">Export PDF / 导出PDF</button>
-  <button class="btn" onclick="window.print()">Print / 打印</button>
+  <button class="btn" onclick="printFinalRecord()">Print / 打印</button>
 </div>
 
 <script>
@@ -796,22 +809,148 @@ async function loadSelectedFinal(){
   }
 }
 
-/* ===================== EXPORT ===================== */
-function exportExcel(){
+
+/* ===================== PRINT (CLEAN PATCH) ===================== */
+/* This patch ONLY replaces printing. It does NOT touch any other logic/UI. */
+function printFinalRecord(){
   const snap = makeDraftSnapshot();
-  const wb = XLSX.utils.book_new();
-  const del = (snap.delivery||[]).map(r=>({
-    region:r.region, grid:r.grid, pile_no:r.pile_no, total_sections:r.total_sections,
-    arrived_sections: encodeArrivals(r.arrivals||{})
-  }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(del), "Delivery");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(snap.onsite||[]), "OnSite");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(snap.welding||[]), "Welding");
-  XLSX.writeFile(wb, (document.getElementById("recordNo").value || "Draft") + ".xlsx");
+
+  const style = `
+  <style>
+  @page{size:A4;margin:12mm}
+  body{font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#000}
+  h1{text-align:center;margin:0 0 8px 0}
+  h3{margin:10px 0 6px 0}
+  .meta{margin:0 0 6px 0; font-size:11pt}
+  table{width:100%;border-collapse:collapse;margin-bottom:10px}
+  th,td{border:1px solid #000;padding:5px;text-align:center;vertical-align:top}
+  th{font-weight:700}
+  .page{page-break-after:always}
+  .page:last-child{page-break-after:auto}
+  .small{font-size:10pt}
+  </style>`;
+
+  // Delivery: show arrival time by section number (1..8) in columns
+  function deliveryRows(){
+    const maxSec = 8;
+    return (snap.delivery||[]).map(r=>{
+      const arr = r.arrivals || {};
+      const cols = Array.from({length:maxSec}, (_,i)=>{
+        const k = String(i+1);
+        return `<td>${arr[k] || ""}</td>`;
+      }).join("");
+      return `<tr>
+        <td>${r.region||""}</td>
+        <td>${r.grid||""}</td>
+        <td>${r.pile_no||""}</td>
+        <td>${r.total_sections||""}</td>
+        ${cols}
+      </tr>`;
+    }).join("");
+  }
+
+  // Onsite: checkmarks for sections 1..8 + remarks
+  function onsiteRows(){
+    const maxSec = 8;
+    return (snap.onsite||[]).map(r=>{
+      const set = new Set((r.sections||[]).map(String));
+      const cols = Array.from({length:maxSec}, (_,i)=>{
+        const k = String(i+1);
+        return `<td>${set.has(k) ? "✔" : ""}</td>`;
+      }).join("");
+      return `<tr>
+        <td>${r.region||""}</td>
+        <td>${r.grid||""}</td>
+        <td>${r.pile_no||""}</td>
+        <td>${r.total_sections||""}</td>
+        ${cols}
+        <td style="text-align:left">${(r.remarks||"")}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  // Welding: show welded sections list + hanging bars welding
+  function weldingRows(){
+    return (snap.welding||[]).map(r=>{
+      const weldedList = (r.sections||[]).join(", ");
+      return `<tr>
+        <td>${r.region||""}</td>
+        <td>${r.grid||""}</td>
+        <td>${r.pile_no||""}</td>
+        <td>${r.total_sections||""}</td>
+        <td>${weldedList}</td>
+        <td>${r.hanging_bars_welding||""}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Rebar Cages Update Record</title>${style}</head><body>
+  <div class="page">
+    <h1>Rebar Cages Update Record<br><span class="small">钢筋笼到场与焊接进度记录</span></h1>
+    <p class="meta"><b>Record No / 记录编号:</b> ${snap.record_no||""}<br>
+      <b>Date / 日期:</b> ${snap.record_date||""} &nbsp;&nbsp; <b>Shift / 班次:</b> ${snap.shift||""}</p>
+
+    <h3>1) Today Delivery / 今日到场</h3>
+    <table>
+      <tr>
+        <th>Region<br><span class="small">区域</span></th>
+        <th>Grid<br><span class="small">网格</span></th>
+        <th>Pile No<br><span class="small">桩号</span></th>
+        <th>Total<br><span class="small">总节数</span></th>
+        <th colspan="8">Section Arrival Time (HH:MM)<br><span class="small">各节到场时间</span></th>
+      </tr>
+      <tr>
+        <th colspan="4"></th>
+        <th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th>
+      </tr>
+      ${deliveryRows()}
+    </table>
+
+    <h3>2) On Site Rebar Cages / 现场已有钢筋笼</h3>
+    <table>
+      <tr>
+        <th>Region<br><span class="small">区域</span></th>
+        <th>Grid<br><span class="small">网格</span></th>
+        <th>Pile No<br><span class="small">桩号</span></th>
+        <th>Total<br><span class="small">总节数</span></th>
+        <th colspan="8">On Site Sections<br><span class="small">在场节段</span></th>
+        <th>Remarks<br><span class="small">备注</span></th>
+      </tr>
+      <tr>
+        <th colspan="4"></th>
+        <th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th>
+        <th></th>
+      </tr>
+      ${onsiteRows()}
+    </table>
+  </div>
+
+  <div class="page">
+    <h3>3) Rebar Cage Welding / 钢筋笼焊接情况</h3>
+    <table>
+      <tr>
+        <th>Region<br><span class="small">区域</span></th>
+        <th>Grid<br><span class="small">网格</span></th>
+        <th>Pile No<br><span class="small">桩号</span></th>
+        <th>Total<br><span class="small">总节数</span></th>
+        <th>Welded Sections<br><span class="small">已焊节段</span></th>
+        <th>Hanging Bars Welding<br><span class="small">吊筋焊接</span></th>
+      </tr>
+      ${weldingRows()}
+    </table>
+
+    <h3>Remarks / 备注</h3>
+    <table><tr><td style="height:90px;text-align:left"></td></tr></table>
+  </div>
+  </body></html>`;
+
+  const w = window.open("", "_blank");
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.onload = ()=>w.print();
 }
-function exportPDF(){
-  html2pdf().from(document.getElementById("page")).set({ filename: (document.getElementById("recordNo").value || "Draft") + ".pdf" }).save();
-}
+
 
 /* ===================== INIT ===================== */
 function init(){
